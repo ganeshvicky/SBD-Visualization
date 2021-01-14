@@ -6,7 +6,7 @@ import tensorflow.compat.v1 as tf
 tf.disable_v2_behavior()
 
 
-class TransNetParams:
+class Params:
     F = 16
     L = 3
     S = 2
@@ -16,21 +16,21 @@ class TransNetParams:
     CHECKPOINT_PATH = None
 
 
-class TransNet:
+class sbd:
 
-    def __init__(self, params: TransNetParams, session=None):
+    def __init__(self, params: Params, session=None):
         self.params = params
         self.session = session or tf.Session()
         self._build()
         self._restore()
 
     def _build(self):
-        tempflag = 0
+        tempflag = True
         def shape_text(tensor):
             return ", ".join(["?" if i is None else str(i) for i in tensor.get_shape().as_list()])
 
         with self.session.graph.as_default():
-            print("[TransNet] Creating ops.")
+            print("Creating Build")
 
             with tf.variable_scope("TransNet"):
                 def conv3d(inp, filters, dilation_rate):
@@ -50,16 +50,18 @@ class TransNet:
 
                         for idx_s in range(self.params.S):
                             with tf.variable_scope("DDCNN_{:d}".format(idx_s + 1)):
-                                net = tf.identity(net)  # improves look of the graph in TensorBoard
+                                net = tf.identity(net)
+                                
                                 conv1 = conv3d(net, filters, 1)
+                                #if(tempflag):
+                                    #self.predictions = net
+                                    #tempflag=False
                                 conv2 = conv3d(net, filters, 2)
                                 conv3 = conv3d(net, filters, 4)
-                                if(tempflag==1):
-                                    self.predictions = conv1
-                                else:
-                                    tempflag+=1
+                                
                                 conv4 = conv3d(net, filters, 8)
                                 net = tf.concat([conv1, conv2, conv3, conv4], axis=4)
+                                
                                 print(" " * 10, "> DDCNN_{:d} ({})".format(idx_s + 1, shape_text(net)))
 
                         net = tf.keras.layers.MaxPool3D(pool_size=(1, 2, 2))(net)
@@ -74,58 +76,33 @@ class TransNet:
 
                 self.logits = tf.keras.layers.Dense(2, activation=None)(net)
                 print(" " * 10, "Logits ({})".format(shape_text(self.logits)))
-                #self.predictions = tf.nn.softmax(self.logits,)[:, :, 1]
+                self.predictions = tf.nn.softmax(self.logits, name="predictions")[:, :, 1]
                 print(" " * 10, "Predictions ({})".format(shape_text(self.predictions)))
 
-            print("[TransNet] Network built.")
+            print("Network built.")
             no_params = np.sum([int(np.prod(v.get_shape().as_list())) for v in tf.trainable_variables()])
-            print("[TransNet] Found {:d} trainable parameters.".format(no_params))
+            print("Found {:d} trainable parameters.".format(no_params))
 
-            # print("=======================================================================")
-
-            # input2 = tf.keras.Input(shape=(1, 1, self.params.INPUT_HEIGHT, self.params.INPUT_WIDTH, 3))
-            # temp = tf.cast(input2, dtype=tf.float32) / 255.
-            # model = tf.keras.Model(temp, conv1)
-            # model.summary()
-
-            # model = net
-            # model = Model(inputs=model.inputs, output=model.layers[1].output)
-            # model.summary()
 
     def _restore(self):
         if self.params.CHECKPOINT_PATH is not None:
             saver = tf.train.Saver()
             saver.restore(self.session, self.params.CHECKPOINT_PATH)
-            print("[TransNet] Parameters restored from '{}'.".format(os.path.basename(self.params.CHECKPOINT_PATH)))
-
-    # def getActivations(layer,stimuli):
-    #     units = sess.run(layer,feed_dict={x:np.reshape(stimuli,[1,784],order='F'),keep_prob:1.0})
-    #     plotNNFilter(units)
-
-    # def plotNNFilter(units):
-    #     filters = units.shape[3]
-    #     plt.figure(1, figsize=(20,20))
-    #     n_columns = 6
-    #     n_rows = math.ceil(filters / n_columns) + 1
-    #     for i in range(filters):
-    #         plt.subplot(n_rows, n_columns, i+1)
-    #         plt.title('Filter ' + str(i))
-    #         plt.imshow(units[0,:,:,i], interpolation="nearest", cmap="gray")
+            print("Parameters restored from '{}'.".format(os.path.basename(self.params.CHECKPOINT_PATH)))
 
     def predict_raw(self, frames: np.ndarray):
         assert len(frames.shape) == 5 and \
                list(frames.shape[2:]) == [self.params.INPUT_HEIGHT, self.params.INPUT_WIDTH, 3],\
-            "[TransNet] Input shape must be [batch, frames, height, width, 3]."
+            "Input shape must be [batch, frames, height, width, 3]."
         return self.session.run(self.predictions, feed_dict={self.inputs: frames})
 
     def predict_video(self, frames: np.ndarray):
         assert len(frames.shape) == 4 and \
                list(frames.shape[1:]) == [self.params.INPUT_HEIGHT, self.params.INPUT_WIDTH, 3], \
-            "[TransNet] Input shape must be [frames, height, width, 3]."
+            "Input shape must be [frames, height, width, 3]."
 
         def input_iterator():
-            # return windows of size 100 where the first/last 25 frames are from the previous/next batch
-            # the first and last window must be padded by copies of the first and last frame of the video
+
             no_padded_frames_start = 25
             no_padded_frames_end = 25 + 50 - (len(frames) % 50 if len(frames) % 50 != 0 else 50)  # 25 - 74
 
@@ -146,8 +123,8 @@ class TransNet:
             pred = self.predict_raw(np.expand_dims(inp, 0))[0, 25:75]
             print(type(pred))
             res.append(pred)
-            print("\r[TransNet] Processing video frames {}/{}".format(
+            print("\rProcessing video frames {}/{}".format(
                 min(len(res) * 50, len(frames)), len(frames)
             ), end="")
         print("")
-        return np.concatenate(res)[:len(frames)]  # remove extra padded frames
+        return np.concatenate(res)[:len(frames)]
