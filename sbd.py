@@ -1,6 +1,7 @@
 import os
 import numpy as np
 #import tensorflow as tf
+from matplotlib import pyplot as plt
 
 import tensorflow.compat.v1 as tf
 tf.disable_v2_behavior()
@@ -8,9 +9,9 @@ tf.disable_v2_behavior()
 
 class Params:
     F = 16
-    L = 3
-    S = 2
-    D = 256
+    L = 3 #sdcnn
+    S = 2 #dcnn [4 cnn each]
+    D = 256 #dense layer neurons
     INPUT_WIDTH = 48
     INPUT_HEIGHT = 27
     CHECKPOINT_PATH = None
@@ -40,8 +41,10 @@ class sbd:
 
                 self.inputs = tf.placeholder(tf.uint8,
                                              shape=[None, None, self.params.INPUT_HEIGHT, self.params.INPUT_WIDTH, 3])
+                self.predictions = self.inputs
                 net = tf.cast(self.inputs, dtype=tf.float32) / 255.
                 print(" " * 10, "Input ({})".format(shape_text(net)))
+                self.predictions = net
 
                 for idx_l in range(self.params.L):
                     with tf.variable_scope("SDDCNN_{:d}".format(idx_l + 1)):
@@ -53,9 +56,9 @@ class sbd:
                                 net = tf.identity(net)
                                 
                                 conv1 = conv3d(net, filters, 1)
-                                #if(tempflag):
-                                    #self.predictions = net
-                                    #tempflag=False
+                                # if(tempflag):
+                                self.predictions = conv1
+                                #     tempflag=False
                                 conv2 = conv3d(net, filters, 2)
                                 conv3 = conv3d(net, filters, 4)
                                 
@@ -76,7 +79,7 @@ class sbd:
 
                 self.logits = tf.keras.layers.Dense(2, activation=None)(net)
                 print(" " * 10, "Logits ({})".format(shape_text(self.logits)))
-                self.predictions = tf.nn.softmax(self.logits, name="predictions")[:, :, 1]
+                #self.predictions = tf.nn.softmax(self.logits, name="predictions")[:, :, 1]
                 print(" " * 10, "Predictions ({})".format(shape_text(self.predictions)))
 
             print("Network built.")
@@ -101,16 +104,36 @@ class sbd:
                list(frames.shape[1:]) == [self.params.INPUT_HEIGHT, self.params.INPUT_WIDTH, 3], \
             "Input shape must be [frames, height, width, 3]."
 
+
+
         def input_iterator():
 
             no_padded_frames_start = 25
             no_padded_frames_end = 25 + 50 - (len(frames) % 50 if len(frames) % 50 != 0 else 50)  # 25 - 74
 
+            #print(no_padded_frames_end)
+
             start_frame = np.expand_dims(frames[0], 0)
-            end_frame = np.expand_dims(frames[-1], 0)
+            # print("start frames", start_frame.shape)
+            # print()
+            end_frame = np.expand_dims(frames[-1], 0) 
+            # print("end frames", end_frame.shape)
+            #print("test", start_frame.shape)
             padded_inputs = np.concatenate(
                 [start_frame] * no_padded_frames_start + [frames] + [end_frame] * no_padded_frames_end, 0
             )
+
+            #print("len", padded_inputs.shape)
+
+            # print("total padded frames:", padded_inputs.shape)
+            # print(padded_inputs[2500,:,:,0].shape)
+            # plt.imshow(padded_inputs[2500,:,:,0])
+            # plt.show()
+            # print(padded_inputs[2501,:,:,0].shape)
+            # plt.imshow(padded_inputs[2501,:,:,0])
+            # plt.show()
+            # for i in range(2500, 2505):
+            #     print(padded_inputs[i,:,:,0])
 
             ptr = 0
             while ptr + 100 <= len(padded_inputs):
@@ -120,9 +143,15 @@ class sbd:
 
         res = []
         for inp in input_iterator():
+            # print(inp)
+            # for i in range(100):
+            #     plt.imshow(inp[i, :, :, 0])
+            #     plt.show()
             pred = self.predict_raw(np.expand_dims(inp, 0))[0, 25:75]
-            print(type(pred))
-            res.append(pred)
+            #print(pred.shape)
+            res.append(pred)  #0.2, 
+            #print(res)
+
             print("\rProcessing video frames {}/{}".format(
                 min(len(res) * 50, len(frames)), len(frames)
             ), end="")
